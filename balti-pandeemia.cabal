@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: da99d44a185f3b66b1c695583537510171575d35241c32b0d9b2e3c4d582cce6
+-- hash: 9f03e53ae7db231bd956e0de59d6095537c4c1bbfe72c46d4394df545da5ced5
 
 name:           balti-pandeemia
 version:        0.1.0.0
@@ -25,23 +25,7 @@ source-repository head
   type: git
   location: https://github.com/githubuser/balti-pandeemia
 
-library
-  exposed-modules:
-      Lib
-  other-modules:
-      Paths_balti_pandeemia
-  hs-source-dirs:
-      src
-  build-depends:
-      Chart
-    , base >=4.7 && <5
-    , containers
-    , lens
-    , mtl
-    , text
-  default-language: Haskell2010
-
-executable balti-pandeemia-exe
+executable pandeemia
   main-is: Main.hs
   other-modules:
       Paths_balti_pandeemia
@@ -50,25 +34,6 @@ executable balti-pandeemia-exe
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
-    , balti-pandeemia
-    , base >=4.7 && <5
-    , containers
-    , lens
-    , mtl
-    , text
-  default-language: Haskell2010
-
-test-suite balti-pandeemia-test
-  type: exitcode-stdio-1.0
-  main-is: Spec.hs
-  other-modules:
-      Paths_balti_pandeemia
-  hs-source-dirs:
-      test
-  ghc-options: -threaded -rtsopts -with-rtsopts=-N
-  build-depends:
-      Chart
-    , balti-pandeemia
     , base >=4.7 && <5
     , containers
     , lens

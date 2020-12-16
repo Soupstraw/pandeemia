@@ -27,27 +27,12 @@ dependencies:
 - lens
 - mtl
 
-library:
-  source-dirs: src
-
 executables:
-  balti-pandeemia-exe:
+  pandeemia:
     main:                Main.hs
     source-dirs:         app
     ghc-options:
     - -threaded
     - -rtsopts
     - -with-rtsopts=-N
-    dependencies:
-    - balti-pandeemia
 
-tests:
-  balti-pandeemia-test:
-    main:                Spec.hs
-    source-dirs:         test
-    ghc-options:
-    - -threaded
-    - -rtsopts
-    - -with-rtsopts=-N
-    dependencies:
-    - balti-pandeemia
