@@ -7,24 +7,26 @@ import Control.Lens
 import Control.Monad.State
 
 import Data.Text
+import Data.Int
+
 import qualified Data.Map as M
 
 data Country = Country
   { _cName           :: Text
-  , _cSuceptibles    :: Int
-  , _cExposed        :: Int
-  , _cInfectious     :: Int
-  , _cRecovered      :: Int
-  , _cYearlyTourists :: Int
+  , _cSuceptibles    :: Int64
+  , _cExposed        :: Int64
+  , _cInfectious     :: Int64
+  , _cRecovered      :: Int64
+  , _cYearlyTourists :: Int64
   }
 makeLenses ''Country
 
 data SimulationState = SimulationState
   { _ssCountries         :: [Country]
-  , _ssBaseInfectionRate :: Float
-  , _ssIncubationPeriod  :: Float
-  , _ssDiseaseDuration   :: Float
-  , _ssTravelMatrix      :: M.Map (Text, Text) Float
+  , _ssBaseInfectionRate :: Double
+  , _ssIncubationPeriod  :: Double
+  , _ssDiseaseDuration   :: Double
+  , _ssTravelMatrix      :: M.Map (Text, Text) Double
   }
 makeLenses ''SimulationState
 
@@ -46,7 +48,7 @@ main =
               , _cExposed = 0
               , _cInfectious = 0
               , _cRecovered = 0
-              , _cYearlyTourists = undefined
+              , _cYearlyTourists = 5370000
               }
           , Country
               { _cName = "Soome"
@@ -54,7 +56,7 @@ main =
               , _cExposed = 0
               , _cInfectious = 0
               , _cRecovered = 0
-              , _cYearlyTourists = undefined
+              , _cYearlyTourists = 22000000
               }
           , Country
               { _cName = "Venemaa"
@@ -62,7 +64,7 @@ main =
               , _cExposed = 0
               , _cInfectious = 0
               , _cRecovered = 0
-              , _cYearlyTourists = undefined
+              , _cYearlyTourists = 584000000
               }
           ]
     let travelMatrix = M.fromList
@@ -81,6 +83,13 @@ main =
           , (("Läti", "Venemaa"), 365783)
           , (("Soome", "Venemaa"), 938693)
           ]
+    let initialState = SimulationState
+          { _ssTravelMatrix = travelMatrix
+          , _ssDiseaseDuration = 14
+          , _ssIncubationPeriod = 14
+          , _ssBaseInfectionRate = 2
+          , _ssCountries = countries
+          }
     undefined
 
 update :: State SimulationState ()
@@ -88,12 +97,15 @@ update =
   do
     countries <- use ssCountries
     internal <- traverse updateInternal countries
+    ssCountries .= internal
+
     travelMatrix <- use ssTravelMatrix
     let travelled = 
           do
-            x <- internal
-            y <- internal
-            let travelRate = M.lookup (x ^. cName, y ^. cName) travelMatrix
+            src <- internal
+            dest <- internal
+            let travelRate = M.findWithDefault 0 (src ^. cName, dest ^. cName) travelMatrix
+            let dailyTravels = realToFrac $ travelRate / 365
             undefined
     undefined
 
