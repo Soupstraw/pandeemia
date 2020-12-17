@@ -4,7 +4,7 @@ cabal-version: 1.12
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 9f03e53ae7db231bd956e0de59d6095537c4c1bbfe72c46d4394df545da5ced5
+-- hash: c5e5625d69c6f5249ae2ae76d6ad25c886034de948be661de99f3f7da454f62e
 
 name:           balti-pandeemia
 version:        0.1.0.0
@@ -34,6 +34,7 @@ executable pandeemia
   ghc-options: -threaded -rtsopts -with-rtsopts=-N
   build-depends:
       Chart
+    , Chart-diagrams
     , base >=4.7 && <5
     , containers
     , lens
