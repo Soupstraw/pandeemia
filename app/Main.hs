@@ -7,10 +7,15 @@ module Main where
 
 import Control.Lens
 import Control.Monad
+import Control.Monad.State
 
-import Data.Text
-import Data.Int
+import qualified Data.Csv as CSV
+import qualified Data.Text as T
+import qualified Data.List as L
+import qualified Data.ByteString.Lazy.UTF8 as BS
 import Data.Maybe
+import Data.Time.Calendar
+import qualified Data.Vector as V
 
 import qualified Data.Map as M
 
@@ -18,36 +23,49 @@ import Graphics.Rendering.Chart.Easy
 import Graphics.Rendering.Chart.Grid
 import Graphics.Rendering.Chart.Backend.Diagrams
 
+numberOfDays :: Num a => a
+numberOfDays = 365
+
+startDate :: Day
+startDate = fromGregorian 2020 3 1
+
 data Country = Country
-  { _cName           :: Text
-  , _cSuceptibles    :: Int64
-  , _cExposed        :: Int64
-  , _cInfectious     :: Int64
-  , _cRecovered      :: Int64
-  , _cYearlyTourists :: Int64
+  { _cName           :: T.Text
+  , _cSuceptibles    :: Double
+  , _cExposed        :: Double
+  , _cInfectious     :: Double
+  , _cRecovered      :: Double
+  , _cFatigue        :: [Double]
   }
 makeLenses ''Country
 
 data SimulationState = SimulationState
-  { _ssCountries         :: [Country]
-  , _ssBaseInfectionRate :: Double
-  , _ssIncubationPeriod  :: Double
-  , _ssDiseaseDuration   :: Double
-  , _ssTravelMatrix      :: M.Map (Text, Text) Double
+  { _ssCountries          :: [Country]
+  , _ssBaseInfectionRate  :: Double
+  , _ssIncubationPeriod   :: Double
+  , _ssDiseaseDuration    :: Double
+  , _ssFatigueCoefficient :: Double
+  , _ssTravelMatrix       :: M.Map (T.Text, T.Text) Double
   }
 makeLenses ''SimulationState
 
 main :: IO ()
 main = 
   do
+    estFatigue <- readTrendsData "data/eesti_trends.csv"
+    finFatigue <- readTrendsData "data/soome_trends.csv"
+    rusFatigue <- readTrendsData "data/venemaa_trends.csv"
+    latFatigue <- readTrendsData "data/lati_trends.csv"
+    wldFatigue <- readTrendsData "data/maailm_trends.csv"
     let countries =
+          -- Nakatunud 1. märtsi seisuga
           [ Country
               { _cName = "Eesti"
               , _cSuceptibles = 1328976
-              , _cExposed = 0
-              , _cInfectious = 0
+              , _cExposed = 1
+              , _cInfectious = 2
               , _cRecovered = 0
-              , _cYearlyTourists = 3789955
+              , _cFatigue = estFatigue
               }
           , Country
               { _cName = "Läti"
@@ -55,23 +73,31 @@ main =
               , _cExposed = 0
               , _cInfectious = 0
               , _cRecovered = 0
-              , _cYearlyTourists = 5370000
+              , _cFatigue = latFatigue
               }
           , Country
               { _cName = "Soome"
               , _cSuceptibles = 5518000
-              , _cExposed = 0
-              , _cInfectious = 0
+              , _cExposed = 6
+              , _cInfectious = 12
               , _cRecovered = 0
-              , _cYearlyTourists = 22000000
+              , _cFatigue = finFatigue
               }
           , Country
               { _cName = "Venemaa"
               , _cSuceptibles = 144500000
-              , _cExposed = 100
-              , _cInfectious = 0
+              , _cExposed = 2
+              , _cInfectious = 4
               , _cRecovered = 0
-              , _cYearlyTourists = 584000000
+              , _cFatigue = rusFatigue
+              }
+          , Country
+              { _cName = "Maailm"
+              , _cSuceptibles = 7.8e9
+              , _cExposed = 84000
+              , _cInfectious = 42000
+              , _cRecovered = 42000
+              , _cFatigue = wldFatigue
               }
           ]
     let travelMatrix = M.fromList
@@ -86,15 +112,20 @@ main =
           , (("Eesti", "Soome"),   243000)
           , (("Venemaa", "Soome"), 814600)
           -- Total visitors
-          , (("Eesti", "Venemaa"), 540062)
-          , (("Läti", "Venemaa"),  365783)
-          , (("Soome", "Venemaa"), 938693)
+          , (("Eesti", "Venemaa"),  540062)
+          , (("Läti", "Venemaa"),   365783)
+          , (("Soome", "Venemaa"),  938693)
+          , (("Maailm", "Eesti"),   3789955)
+          , (("Maailm", "Läti"),    5370000)
+          , (("Maailm", "Soome"),   22000000)
+          , (("Maailm", "Venemaa"), 584000000)
           ]
     let bordersOpen = SimulationState
           { _ssTravelMatrix = travelMatrix
-          , _ssDiseaseDuration = 0.1
-          , _ssIncubationPeriod = 0.5
-          , _ssBaseInfectionRate = 0.5
+          , _ssDiseaseDuration   = 0.01
+          , _ssIncubationPeriod  = 0.05
+          , _ssBaseInfectionRate = 0.17
+          , _ssFatigueCoefficient = 0.5
           , _ssCountries = countries
           }
     let countriesOpenGrid = layoutToGrid . countryGraph bordersOpen <$>
@@ -102,64 +133,77 @@ main =
           , "Läti"
           , "Soome"
           , "Venemaa"
+          , "Maailm"
           ]
-    void . renderableToFile def "mudel.svg" . fillBackground def . gridToRenderable $ 
+    let opts = def
+          { _fo_size = (1024, 1024)
+          }
+    void . renderableToFile opts "mudel.svg" . fillBackground def . gridToRenderable $ 
       aboveN countriesOpenGrid
 
 update :: SimulationState -> SimulationState
-update state = Prelude.foldr ($) updated travelled
-  where
-    countries = state ^. ssCountries
-    internal = fmap (updateInternal state) countries
-    updated = state & ssCountries .~ internal
+update state = evalState ?? state $
+  do
+    updated <- traverse updateInternal =<< use ssCountries
+    ssCountries .= updated
+    internal <- use ssCountries
 
-    travelMatrix = state ^. ssTravelMatrix
-    travelled :: [SimulationState -> SimulationState]
-    travelled = 
-      do
-        src <- internal
-        dest <- internal
-        let travelRate = M.findWithDefault 0 (src ^. cName, dest ^. cName) travelMatrix
-        let dailyTravels = realToFrac $ travelRate / 365
-        let srcPop = fromIntegral $ population src
-        let travelSuc = round $ fromIntegral (src ^. cSuceptibles) / srcPop * dailyTravels
-        let travelExp = round $ fromIntegral (src ^. cExposed) / srcPop * dailyTravels
-        let travelRec = round $ fromIntegral (src ^. cRecovered) / srcPop * dailyTravels
-        let updateSrc x = x & cSuceptibles -~ travelSuc
-                            & cExposed     -~ travelExp
-                            & cRecovered   -~ travelRec
-        let updateDest x = x & cSuceptibles +~ travelSuc
-                             & cExposed     +~ travelExp
-                             & cRecovered   +~ travelRec
-        let findLens n = ssCountries . traversed . filtered (view $ cName . to (==n))
-        return $ \st -> st & findLens (_cName src)  %~ updateSrc
-                           & findLens (_cName dest) %~ updateDest
-    
+    travelMatrix <- use ssTravelMatrix
+    let travelled :: [SimulationState -> SimulationState]
+        travelled = 
+          do
+            src <- internal
+            dest <- internal
+            let travelRate1 = M.findWithDefault 0 (src ^. cName, dest ^. cName) travelMatrix
+            let travelRate2 = M.findWithDefault 0 (dest ^. cName, src ^. cName) travelMatrix
+            let travelRate = travelRate1 + travelRate2
+            let dailyTravels = realToFrac $ travelRate / 365
+            let fatigue = head $ src ^. cFatigue
+            let srcPop = population src
+            let fatigueCoef = state ^. ssFatigueCoefficient
+            let ftg = fatigue * fatigueCoef + 1 - fatigueCoef
+            let travelSuc = (src ^. cSuceptibles) / srcPop * dailyTravels * ftg
+            let travelExp = (src ^. cExposed) / srcPop * dailyTravels * ftg
+            let travelRec = (src ^. cRecovered) / srcPop * dailyTravels * ftg
+            let updateSrc x = x & cSuceptibles -~ travelSuc
+                                & cExposed     -~ travelExp
+                                & cRecovered   -~ travelRec
+            let updateDest x = x & cSuceptibles +~ travelSuc
+                                 & cExposed     +~ travelExp
+                                 & cRecovered   +~ travelRec
+            let findLens n = ssCountries . traversed . filtered (view $ cName . to (==n))
+            return $ \st -> st & findLens (_cName src)  %~ updateSrc
+                               & findLens (_cName dest) %~ updateDest
+    state <- get
+    let state' = state & ssCountries . traversed . cFatigue %~ tail
+    return $ Prelude.foldr ($) state' travelled
 
-updateInternal :: SimulationState -> Country -> Country
-updateInternal state country = country 
-                                 & cSuceptibles +~ round deltaS
-                                 & cExposed     +~ round deltaE
-                                 & cInfectious  +~ round deltaI
-                                 & cRecovered   +~ round deltaR
-  where
-    infectionRate    = state ^. ssBaseInfectionRate
-    incubationPeriod = state ^. ssBaseInfectionRate
-    duration         = state ^. ssDiseaseDuration
+updateInternal :: (MonadState SimulationState m) => Country -> m Country
+updateInternal country = 
+  do
+    infectionRate <- use ssBaseInfectionRate
+    gamma         <- use ssIncubationPeriod
+    duration      <- use ssDiseaseDuration
+    fatigueCoef   <- use ssFatigueCoefficient
+    let suceptibles = country ^. cSuceptibles
+    let exposed     = country ^. cExposed
+    let infected    = country ^. cInfectious
+    let fatigue     = head $ country ^. cFatigue
 
-    suceptibles = fromIntegral $ country ^. cSuceptibles
-    exposed     = fromIntegral $ country ^. cExposed
-    infected    = fromIntegral $ country ^. cInfectious
+    let pop  = population country
+    let beta = infectionRate / (pop - 1) * (fatigue*fatigueCoef+1-fatigueCoef)
 
-    pop  = population country
-    beta = infectionRate / fromIntegral (pop - 1)
+    let deltaS = -beta*suceptibles*(exposed+infected)
+    let deltaE = beta*suceptibles*(exposed+infected)-gamma*exposed
+    let deltaI = exposed*gamma-infected*duration
+    let deltaR = infected*duration
+    return $ country 
+      & cSuceptibles +~ deltaS
+      & cExposed     +~ deltaE
+      & cInfectious  +~ deltaI
+      & cRecovered   +~ deltaR
 
-    deltaS = -beta*suceptibles*(exposed+infected)
-    deltaE = beta*suceptibles*(exposed+infected)-incubationPeriod*exposed
-    deltaI = exposed*incubationPeriod-infected*duration
-    deltaR = infected*duration
-
-population :: Country -> Int64
+population :: Country -> Double
 population country = sum
   [ country ^. cSuceptibles
   , country ^. cExposed
@@ -167,19 +211,39 @@ population country = sum
   , country ^. cRecovered
   ]
 
-countryGraph :: SimulationState -> Text -> Layout Int Double
+fillBetween title vs = liftEC $ do
+  plot_fillbetween_title .= title
+  color <- takeColor
+  plot_fillbetween_style .= solidFillStyle color
+  plot_fillbetween_values .= vs
+
+countryGraph :: SimulationState -> T.Text -> Layout Day Double
 countryGraph init c = execEC $
   do
-    let states = Prelude.zip [0..365] $ iterate update init
-    let getVal l st = st ^? ssCountries . findCountry c . l . to fromIntegral
-    let graph l = states & traversed . _2 %~ fromJust . getVal l
-    layout_title .= unpack c
-    layout_x_axis . laxis_override .= (axis_ticks .~ Prelude.zip [0,10..360] (repeat 3))
-    plot $ line "Terved"        [graph cSuceptibles]
-    plot $ line "Kokkupuutunud" [graph cExposed]
-    plot $ line "Nakatunud"     [graph cInfectious]
-    plot $ line "Taastunud"     [graph cRecovered]
+    let states = take numberOfDays $ iterate update init
+    let countryStats = states ^.. folded . ssCountries . findCountry c
+    let dat = zip3 
+          [startDate..addDays numberOfDays startDate]
+          (countryStats ^.. folded . cInfectious)
+          (countryStats ^.. folded . cRecovered)
+    layout_title .= T.unpack c
+    plot $ fillBetween "Taastunud" [(d, (0, v1+v2)) | (d, v1, v2) <- dat]
+    plot $ fillBetween "Nakatunud" [(d, (0, v1)) | (d, v1, _) <- dat]
 
-findCountry :: Text -> Traversal' [Country] Country
+findCountry :: T.Text -> Traversal' [Country] Country
 findCountry c = traversed . filtered (view $ cName . to (==c))
+
+readTrendsData :: T.Text -> IO [Double]
+readTrendsData filename = 
+  do
+    file <- readFile $ T.unpack filename
+    let csv :: Either String (V.Vector (String, Int))
+        csv = CSV.decode CSV.NoHeader $ BS.fromString file
+    let points :: [(Day, Int)]
+        points = V.toList $ (_1 %~ read) <$> either error id csv
+    let interp' :: Day -> Double
+        interp' t = fromIntegral . snd . fromMaybe (last points) $ L.find (\(x,_) -> x >= t) points
+    let interp t = 1 - interp' t / 100
+    let interpolated = fmap interp [startDate..addDays numberOfDays startDate]
+    return $ interpolated <> repeat (last interpolated)
 
