@@ -24,7 +24,7 @@ import Graphics.Rendering.Chart.Grid
 import Graphics.Rendering.Chart.Backend.Diagrams
 
 numberOfDays :: Num a => a
-numberOfDays = 365
+numberOfDays = 270
 
 startDate :: Day
 startDate = fromGregorian 2020 3 1
@@ -122,10 +122,10 @@ main =
           ]
     let bordersOpen = SimulationState
           { _ssTravelMatrix = travelMatrix
-          , _ssDiseaseDuration   = 0.01
-          , _ssIncubationPeriod  = 0.05
-          , _ssBaseInfectionRate = 0.17
-          , _ssFatigueCoefficient = 0.5
+          , _ssDiseaseDuration   = 0.1
+          , _ssIncubationPeriod  = 0.1
+          , _ssBaseInfectionRate = 0.115
+          , _ssFatigueCoefficient = 1
           , _ssCountries = countries
           }
     let countriesOpenGrid = layoutToGrid . countryGraph bordersOpen <$>
