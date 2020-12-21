@@ -24,7 +24,7 @@ import Graphics.Rendering.Chart.Grid
 import Graphics.Rendering.Chart.Backend.Diagrams
 
 numberOfDays :: Num a => a
-numberOfDays = 270
+numberOfDays = 365
 
 startDate :: Day
 startDate = fromGregorian 2020 3 1
@@ -122,9 +122,9 @@ main =
           ]
     let bordersOpen = SimulationState
           { _ssTravelMatrix = travelMatrix
-          , _ssDiseaseDuration   = 0.1
-          , _ssIncubationPeriod  = 0.1
-          , _ssBaseInfectionRate = 0.115
+          , _ssDiseaseDuration   = 0.09
+          , _ssIncubationPeriod  = 0.19
+          , _ssBaseInfectionRate = 0.13
           , _ssFatigueCoefficient = 1
           , _ssCountries = countries
           }
@@ -182,8 +182,8 @@ updateInternal :: (MonadState SimulationState m) => Country -> m Country
 updateInternal country = 
   do
     infectionRate <- use ssBaseInfectionRate
-    gamma         <- use ssIncubationPeriod
-    duration      <- use ssDiseaseDuration
+    mu            <- use ssIncubationPeriod
+    gamma         <- use ssDiseaseDuration
     fatigueCoef   <- use ssFatigueCoefficient
     let suceptibles = country ^. cSuceptibles
     let exposed     = country ^. cExposed
@@ -194,9 +194,9 @@ updateInternal country =
     let beta = infectionRate / (pop - 1) * (fatigue*fatigueCoef+1-fatigueCoef)
 
     let deltaS = -beta*suceptibles*(exposed+infected)
-    let deltaE = beta*suceptibles*(exposed+infected)-gamma*exposed
-    let deltaI = exposed*gamma-infected*duration
-    let deltaR = infected*duration
+    let deltaE = beta*suceptibles*(exposed+infected)-mu*exposed
+    let deltaI = exposed*mu-infected*gamma
+    let deltaR = infected*gamma
     return $ country 
       & cSuceptibles +~ deltaS
       & cExposed     +~ deltaE
