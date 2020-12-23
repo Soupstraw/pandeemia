@@ -24,10 +24,10 @@ import Graphics.Rendering.Chart.Grid
 import Graphics.Rendering.Chart.Backend.Diagrams
 
 numberOfDays :: Num a => a
-numberOfDays = 365
+numberOfDays = 114
 
 startDate :: Day
-startDate = fromGregorian 2020 3 1
+startDate = fromGregorian 2020 9 1
 
 data Country = Country
   { _cName           :: T.Text
@@ -45,6 +45,7 @@ data SimulationState = SimulationState
   , _ssIncubationPeriod   :: Double
   , _ssDiseaseDuration    :: Double
   , _ssFatigueCoefficient :: Double
+  , _ssTravelCoefficient  :: Double
   , _ssTravelMatrix       :: M.Map (T.Text, T.Text) Double
   }
 makeLenses ''SimulationState
@@ -57,52 +58,54 @@ main =
     rusFatigue <- readTrendsData "data/venemaa_trends.csv"
     latFatigue <- readTrendsData "data/lati_trends.csv"
     wldFatigue <- readTrendsData "data/maailm_trends.csv"
+    -- Riikide andmed
     let countries =
           -- Nakatunud 1. märtsi seisuga
           [ Country
               { _cName = "Eesti"
-              , _cSuceptibles = 1328976
-              , _cExposed = 1
-              , _cInfectious = 2
-              , _cRecovered = 0
-              , _cFatigue = estFatigue
+              , _cSuceptibles = 1326590            -- Tervete inimeste arv
+              , _cExposed = 55                     -- Kokkupuutunute arv
+              , _cInfectious = 219                 -- Nakkusohtlike arv
+              , _cRecovered = 2396                 -- Taastunute arv
+              , _cFatigue = estFatigue             -- Pandeemiaväsimus (ei kasutata hetkel)
               }
           , Country
               { _cName = "Läti"
               , _cSuceptibles = 2795000
-              , _cExposed = 0
-              , _cInfectious = 0
-              , _cRecovered = 0
+              , _cExposed = 20
+              , _cInfectious = 81
+              , _cRecovered = 1404
               , _cFatigue = latFatigue
               }
           , Country
               { _cName = "Soome"
               , _cSuceptibles = 5518000
-              , _cExposed = 6
-              , _cInfectious = 12
-              , _cRecovered = 0
+              , _cExposed = 151
+              , _cInfectious = 606
+              , _cRecovered = 7500
               , _cFatigue = finFatigue
               }
           , Country
               { _cName = "Venemaa"
               , _cSuceptibles = 144500000
-              , _cExposed = 2
-              , _cInfectious = 4
-              , _cRecovered = 0
+              , _cExposed = 40000
+              , _cInfectious = 167004
+              , _cRecovered = 1000000
               , _cFatigue = rusFatigue
               }
           , Country
               { _cName = "Maailm"
               , _cSuceptibles = 7.8e9
-              , _cExposed = 84000
-              , _cInfectious = 42000
-              , _cRecovered = 42000
+              , _cExposed = 1.65e6
+              , _cInfectious = 6471000
+              , _cRecovered = 26500000
               , _cFatigue = wldFatigue
               }
           ]
+    -- Reiside maatriks
     let travelMatrix = M.fromList
           -- Overnight stays
-          [ (("Läti", "Eesti"),    182860)
+          [ (("Läti", "Eesti"),    182860) -- Aastas Lätist Eestisse reisinute arv
           , (("Soome", "Eesti"),   804645)
           , (("Venemaa", "Eesti"), 260036)
           , (("Eesti", "Läti"),    210300)
@@ -122,21 +125,22 @@ main =
           ]
     let bordersOpen = SimulationState
           { _ssTravelMatrix = travelMatrix
-          , _ssDiseaseDuration   = 0.09
-          , _ssIncubationPeriod  = 0.19
-          , _ssBaseInfectionRate = 0.13
+          , _ssDiseaseDuration   = 12    -- Haiguse kestus päevades
+          , _ssIncubationPeriod  = 3     -- Haiguse peiteaeg päevades
+          , _ssBaseInfectionRate = 0.077 -- Nakatamise kiirus
           , _ssFatigueCoefficient = 1
           , _ssCountries = countries
+          , _ssTravelCoefficient = 1
           }
-    let countriesOpenGrid = layoutToGrid . countryGraph bordersOpen <$>
+    let countriesOpenGrid = layoutToGrid <$> (countryGraph bordersOpen =<<
           [ "Eesti"
           , "Läti"
           , "Soome"
           , "Venemaa"
           , "Maailm"
-          ]
+          ])
     let opts = def
-          { _fo_size = (1024, 1024)
+          { _fo_size = (1024, 2048)
           }
     void . renderableToFile opts "mudel.svg" . fillBackground def . gridToRenderable $ 
       aboveN countriesOpenGrid
@@ -147,6 +151,7 @@ update state = evalState ?? state $
     updated <- traverse updateInternal =<< use ssCountries
     ssCountries .= updated
     internal <- use ssCountries
+    travelCoefficient <- use ssTravelCoefficient
 
     travelMatrix <- use ssTravelMatrix
     let travelled :: [SimulationState -> SimulationState]
@@ -154,44 +159,51 @@ update state = evalState ?? state $
           do
             src <- internal
             dest <- internal
+            -- Leiame reiside arvu kahe riigi peale ning liidame need (A -> B ja B -> A)
             let travelRate1 = M.findWithDefault 0 (src ^. cName, dest ^. cName) travelMatrix
             let travelRate2 = M.findWithDefault 0 (dest ^. cName, src ^. cName) travelMatrix
-            let travelRate = travelRate1 + travelRate2
+            let travelRate = (travelRate1 + travelRate2)*travelCoefficient
+
+            -- Leiame keskmise päevaste reiside arvu
             let dailyTravels = realToFrac $ travelRate / 365
-            let fatigue = head $ src ^. cFatigue
             let srcPop = population src
-            let fatigueCoef = state ^. ssFatigueCoefficient
-            let ftg = fatigue * fatigueCoef + 1 - fatigueCoef
-            let travelSuc = (src ^. cSuceptibles) / srcPop * dailyTravels * ftg
-            let travelExp = (src ^. cExposed) / srcPop * dailyTravels * ftg
-            let travelRec = (src ^. cRecovered) / srcPop * dailyTravels * ftg
+
+            -- Arvutame kui palju reisib haigestunuid terveid ja taastunuid
+            let travelSuc = (src ^. cSuceptibles) / srcPop * dailyTravels
+            let travelExp = (src ^. cExposed) / srcPop * dailyTravels
+            let travelRec = (src ^. cRecovered) / srcPop * dailyTravels
+
+            -- Uuendame riikide populatsioone
             let updateSrc x = x & cSuceptibles -~ travelSuc
                                 & cExposed     -~ travelExp
                                 & cRecovered   -~ travelRec
             let updateDest x = x & cSuceptibles +~ travelSuc
                                  & cExposed     +~ travelExp
                                  & cRecovered   +~ travelRec
+
+            -- Tagastame funktsiooni, mis uuendab simulatsiooni olekut
             let findLens n = ssCountries . traversed . filtered (view $ cName . to (==n))
             return $ \st -> st & findLens (_cName src)  %~ updateSrc
                                & findLens (_cName dest) %~ updateDest
     state <- get
     let state' = state & ssCountries . traversed . cFatigue %~ tail
+    -- Rakendame järjestikku kõik eelnevalt leitud oleku uuendamise funktsioonid
     return $ Prelude.foldr ($) state' travelled
 
 updateInternal :: (MonadState SimulationState m) => Country -> m Country
 updateInternal country = 
   do
     infectionRate <- use ssBaseInfectionRate
-    mu            <- use ssIncubationPeriod
-    gamma         <- use ssDiseaseDuration
-    fatigueCoef   <- use ssFatigueCoefficient
+    mu            <- use $ ssIncubationPeriod . to (1/)
+    gamma         <- use $ ssDiseaseDuration . to (1/)
+    --fatigueCoef   <- use ssFatigueCoefficient
     let suceptibles = country ^. cSuceptibles
     let exposed     = country ^. cExposed
     let infected    = country ^. cInfectious
-    let fatigue     = head $ country ^. cFatigue
+    --let fatigue     = head $ country ^. cFatigue
 
     let pop  = population country
-    let beta = infectionRate / (pop - 1) * (fatigue*fatigueCoef+1-fatigueCoef)
+    let beta = infectionRate / (pop - 1) 
 
     let deltaS = -beta*suceptibles*(exposed+infected)
     let deltaE = beta*suceptibles*(exposed+infected)-mu*exposed
@@ -211,24 +223,25 @@ population country = sum
   , country ^. cRecovered
   ]
 
-fillBetween title vs = liftEC $ do
-  plot_fillbetween_title .= title
-  color <- takeColor
-  plot_fillbetween_style .= solidFillStyle color
-  plot_fillbetween_values .= vs
-
-countryGraph :: SimulationState -> T.Text -> Layout Day Double
-countryGraph init c = execEC $
-  do
-    let states = take numberOfDays $ iterate update init
-    let countryStats = states ^.. folded . ssCountries . findCountry c
-    let dat = zip3 
-          [startDate..addDays numberOfDays startDate]
-          (countryStats ^.. folded . cInfectious)
-          (countryStats ^.. folded . cRecovered)
-    layout_title .= T.unpack c
-    plot $ fillBetween "Taastunud" [(d, (0, v1+v2)) | (d, v1, v2) <- dat]
-    plot $ fillBetween "Nakatunud" [(d, (0, v1)) | (d, v1, _) <- dat]
+countryGraph :: SimulationState -> T.Text -> [Layout Day Double]
+countryGraph init c = execEC <$>
+  [ do
+      let infVals x = zip xVals $ ite x ^.. folded . cInfectious
+      layout_title .= T.unpack c <> " nakatunute arv"
+      let plt coef = plot . line ("Reisimise koefitsent " <> show coef) $ [infVals coef]
+      forM [0,0.25..1] plt
+  , do 
+      let recVals x = zip xVals $ ite x ^.. folded . cRecovered
+      layout_title .= T.unpack c <> " tervenenute arv"
+      let plt coef = plot . line ("Reisimise koefitsent " <> show coef) $ [recVals coef]
+      forM [0,0.25..1] plt
+  ] 
+  where
+    withTravelCoefficient x = init & ssTravelCoefficient .~ x
+    ite x = states ^.. folded . ssCountries . findCountry c
+      where states = take numberOfDays $ iterate update $ withTravelCoefficient x
+    xVals = [startDate..addDays numberOfDays startDate]
+    
 
 findCountry :: T.Text -> Traversal' [Country] Country
 findCountry c = traversed . filtered (view $ cName . to (==c))
