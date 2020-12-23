@@ -23,12 +23,15 @@ import Graphics.Rendering.Chart.Easy
 import Graphics.Rendering.Chart.Grid
 import Graphics.Rendering.Chart.Backend.Diagrams
 
+-- Simulatsiooni kestus päevades
 numberOfDays :: Num a => a
 numberOfDays = 114
 
+-- Algusdaatum
 startDate :: Day
 startDate = fromGregorian 2020 9 1
 
+-- Andmestruktuur riigi info talletamiseks
 data Country = Country
   { _cName           :: T.Text
   , _cSuceptibles    :: Double
@@ -39,6 +42,7 @@ data Country = Country
   }
 makeLenses ''Country
 
+-- Defineerime simulatsiooni oleku
 data SimulationState = SimulationState
   { _ssCountries          :: [Country]
   , _ssBaseInfectionRate  :: Double
@@ -102,7 +106,7 @@ main =
               , _cFatigue = wldFatigue
               }
           ]
-    -- Reiside maatriks
+    -- Reiside maatriks (arv näitab reiside arvu aastas)
     let travelMatrix = M.fromList
           -- Overnight stays
           [ (("Läti", "Eesti"),    182860) -- Aastas Lätist Eestisse reisinute arv
@@ -130,7 +134,7 @@ main =
           , _ssBaseInfectionRate = 0.077 -- Nakatamise kiirus
           , _ssFatigueCoefficient = 1
           , _ssCountries = countries
-          , _ssTravelCoefficient = 1
+          , _ssTravelCoefficient = 1     -- Pole hetkel nii oluline, seda muudame hiljem
           }
     let countriesOpenGrid = layoutToGrid <$> (countryGraph bordersOpen =<<
           [ "Eesti"
@@ -142,6 +146,7 @@ main =
     let opts = def
           { _fo_size = (1024, 2048)
           }
+    -- Joonistame graafikud ja salvestame need faili
     void . renderableToFile opts "mudel.svg" . fillBackground def . gridToRenderable $ 
       aboveN countriesOpenGrid
 
@@ -193,6 +198,7 @@ update state = evalState ?? state $
 updateInternal :: (MonadState SimulationState m) => Country -> m Country
 updateInternal country = 
   do
+    -- Leiame olekust kõik vajalikud andmed
     infectionRate <- use ssBaseInfectionRate
     mu            <- use $ ssIncubationPeriod . to (1/)
     gamma         <- use $ ssDiseaseDuration . to (1/)
@@ -201,20 +207,25 @@ updateInternal country =
     let exposed     = country ^. cExposed
     let infected    = country ^. cInfectious
     --let fatigue     = head $ country ^. cFatigue
-
+    
+    -- Arvutame rahvaarvu ja leiame parameetri beeta
     let pop  = population country
     let beta = infectionRate / (pop - 1) 
 
+    -- Arvuta igas olekus oleva populatsiooni muudud
     let deltaS = -beta*suceptibles*(exposed+infected)
     let deltaE = beta*suceptibles*(exposed+infected)-mu*exposed
     let deltaI = exposed*mu-infected*gamma
     let deltaR = infected*gamma
+
+    -- Uuenda riigi tervete, kokkupuutunute ja nakkusohtlike arve
     return $ country 
       & cSuceptibles +~ deltaS
       & cExposed     +~ deltaE
       & cInfectious  +~ deltaI
       & cRecovered   +~ deltaR
 
+-- Arvutab riigi rahvaarvu
 population :: Country -> Double
 population country = sum
   [ country ^. cSuceptibles
@@ -223,12 +234,14 @@ population country = sum
   , country ^. cRecovered
   ]
 
+-- Joonistab riigi graafikud (nakatunud ja tervenenud)
 countryGraph :: SimulationState -> T.Text -> [Layout Day Double]
 countryGraph init c = execEC <$>
   [ do
       let infVals x = zip xVals $ ite x ^.. folded . cInfectious
       layout_title .= T.unpack c <> " nakatunute arv"
       let plt coef = plot . line ("Reisimise koefitsent " <> show coef) $ [infVals coef]
+      -- Joonistame graafikud muutes reisimise koefitsenti 0.25 kaupa
       forM [0,0.25..1] plt
   , do 
       let recVals x = zip xVals $ ite x ^.. folded . cRecovered
@@ -242,10 +255,11 @@ countryGraph init c = execEC <$>
       where states = take numberOfDays $ iterate update $ withTravelCoefficient x
     xVals = [startDate..addDays numberOfDays startDate]
     
-
+-- Funktsioon nime järgi riigi otsimiseks ja selle muutmiseks
 findCountry :: T.Text -> Traversal' [Country] Country
 findCountry c = traversed . filtered (view $ cName . to (==c))
 
+-- Google Trendsi andmete sisselugemine (ei ole mudelis kasutusel)
 readTrendsData :: T.Text -> IO [Double]
 readTrendsData filename = 
   do
