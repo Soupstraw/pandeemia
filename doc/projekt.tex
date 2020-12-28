@@ -3,7 +3,7 @@
 \usepackage[utf8]{inputenc}
 \usepackage[T1]{fontenc}
 \usepackage{textcomp}
-\usepackage[dutch]{babel}
+\usepackage[estonian]{babel}
 \usepackage{amsmath, amssymb}
 \usepackage{hyperref}
 
@@ -78,6 +78,26 @@
     \centering
     \includegraphics[width=\textwidth]{graphics/twomonths.png}
     \caption{Mudeli ennustus märts 2020 kuni mai 2020.}
+  \end{figure}
+
+  \section{Uuendatud mudel}
+  Tagasiside põhjal eemaldasin Google Trendsi andmed, kuna pole selge, kas otsingutulemused
+  põhjustavad inimeste ettevaatlikkust või vastupidi. Selle asemel keskendusin rohkem
+  reisipiirangute mõjule. Uuelt graafikult on näha nakatumisnäitajate muutumine
+  riigiti sõltuvalt sellest, kui palju inimestel on lubatud reisida. Reiside koefitsenti
+  muudetakse intervallis $[0,1]$, kus väärtuse null korral ei toimu üldse reisimist
+  ning väärtuse üks korral toimub sama palju reise kui aastal 2019. Simulatsiooni 
+  algushetkeks valisin seekord 1. septembri, kuna sellest hetkest on nakatumine ajas
+  lihtsamini ennustatav. Saadud graafikutelt on näha, et reisipiirangute mõju on
+  suurem kui nakatumiste arv on väike. Näiteks Lätis jääks reisimise täielikul
+  keelamisel nakatumiste arv pea-aegu muutumatuks. Venemaal see-eest ei ole erinevust kuigi palju märgata. Parameetirte valimisel lähtusin 
+  peamiselt Eesti andmetest, seega teistes riikides ei pruugi mudel vastata päris 
+  andmetele. Kuna igas riigis kogutakse andmeid erinevalt, on raske mudelit kõikide riikide andmetega sobitada.
+
+  \begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{graphics/travel.png}
+    \caption{Uuendatud mudeli ennustus alates 1. septembrist sõltuvalt reisipiirangutest. Y teljel on märgitud aktiivsete nakkusjuhtude arv.}
   \end{figure}
 
   \section{Andmete allikad}

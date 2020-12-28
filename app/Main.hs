@@ -23,13 +23,13 @@ import Graphics.Rendering.Chart.Easy
 import Graphics.Rendering.Chart.Grid
 import Graphics.Rendering.Chart.Backend.Diagrams
 
--- Simulatsiooni kestus päevades
-numberOfDays :: Num a => a
-numberOfDays = 114
-
--- Algusdaatum
+-- Simulatsiooni alguskuupäev
 startDate :: Day
 startDate = fromGregorian 2020 9 1
+
+-- Simulatsiooni lõpukuupäev
+endDate :: Day
+endDate = fromGregorian 2021 2 1
 
 -- Andmestruktuur riigi info talletamiseks
 data Country = Country
@@ -131,20 +131,19 @@ main =
           { _ssTravelMatrix = travelMatrix
           , _ssDiseaseDuration   = 12    -- Haiguse kestus päevades
           , _ssIncubationPeriod  = 3     -- Haiguse peiteaeg päevades
-          , _ssBaseInfectionRate = 0.077 -- Nakatamise kiirus
+          , _ssBaseInfectionRate = 0.090 -- Nakatamise kiirus
           , _ssFatigueCoefficient = 1
           , _ssCountries = countries
           , _ssTravelCoefficient = 1     -- Pole hetkel nii oluline, seda muudame hiljem
           }
-    let countriesOpenGrid = layoutToGrid <$> (countryGraph bordersOpen =<<
+    let countriesOpenGrid = layoutToGrid . countryGraph bordersOpen <$>
           [ "Eesti"
-          , "Läti"
           , "Soome"
+          , "Läti"
           , "Venemaa"
-          , "Maailm"
-          ])
+          ]
     let opts = def
-          { _fo_size = (1024, 2048)
+          { _fo_size = (1024*2, 1024*2)
           }
     -- Joonistame graafikud ja salvestame need faili
     void . renderableToFile opts "mudel.svg" . fillBackground def . gridToRenderable $ 
@@ -167,7 +166,7 @@ update state = evalState ?? state $
             -- Leiame reiside arvu kahe riigi peale ning liidame need (A -> B ja B -> A)
             let travelRate1 = M.findWithDefault 0 (src ^. cName, dest ^. cName) travelMatrix
             let travelRate2 = M.findWithDefault 0 (dest ^. cName, src ^. cName) travelMatrix
-            let travelRate = (travelRate1 + travelRate2)*travelCoefficient
+            let travelRate = (travelRate1 + travelRate2 * 0.8)*travelCoefficient
 
             -- Leiame keskmise päevaste reiside arvu
             let dailyTravels = realToFrac $ travelRate / 365
@@ -177,12 +176,16 @@ update state = evalState ?? state $
             let travelSuc = (src ^. cSuceptibles) / srcPop * dailyTravels
             let travelExp = (src ^. cExposed) / srcPop * dailyTravels
             let travelRec = (src ^. cRecovered) / srcPop * dailyTravels
+            -- Nakatunud reisivad poole väiksema tõenäosusega
+            let travelInf = (src ^. cRecovered) / srcPop * dailyTravels * 0.5
 
             -- Uuendame riikide populatsioone
             let updateSrc x = x & cSuceptibles -~ travelSuc
+                                & cInfectious  -~ travelInf
                                 & cExposed     -~ travelExp
                                 & cRecovered   -~ travelRec
             let updateDest x = x & cSuceptibles +~ travelSuc
+                                 & cInfectious  +~ travelInf
                                  & cExposed     +~ travelExp
                                  & cRecovered   +~ travelRec
 
@@ -234,25 +237,21 @@ population country = sum
   , country ^. cRecovered
   ]
 
--- Joonistab riigi graafikud (nakatunud ja tervenenud)
-countryGraph :: SimulationState -> T.Text -> [Layout Day Double]
-countryGraph init c = execEC <$>
-  [ do
+-- Joonistab riigi graafikud nakatunud
+countryGraph :: SimulationState -> T.Text -> Layout Day Double
+countryGraph init c = execEC $
+  do
       let infVals x = zip xVals $ ite x ^.. folded . cInfectious
       layout_title .= T.unpack c <> " nakatunute arv"
+      layout_x_axis . laxis_override .= (axis_labels . traversed . traversed . _2 %~ takeWhile (/= '-'))
       let plt coef = plot . line ("Reisimise koefitsent " <> show coef) $ [infVals coef]
       -- Joonistame graafikud muutes reisimise koefitsenti 0.25 kaupa
       forM [0,0.25..1] plt
-  , do 
-      let recVals x = zip xVals $ ite x ^.. folded . cRecovered
-      layout_title .= T.unpack c <> " tervenenute arv"
-      let plt coef = plot . line ("Reisimise koefitsent " <> show coef) $ [recVals coef]
-      forM [0,0.25..1] plt
-  ] 
   where
     withTravelCoefficient x = init & ssTravelCoefficient .~ x
+    numberOfDays = diffDays endDate startDate
     ite x = states ^.. folded . ssCountries . findCountry c
-      where states = take numberOfDays $ iterate update $ withTravelCoefficient x
+      where states = take (fromEnum numberOfDays) $ iterate update $ withTravelCoefficient x
     xVals = [startDate..addDays numberOfDays startDate]
     
 -- Funktsioon nime järgi riigi otsimiseks ja selle muutmiseks
@@ -271,6 +270,6 @@ readTrendsData filename =
     let interp' :: Day -> Double
         interp' t = fromIntegral . snd . fromMaybe (last points) $ L.find (\(x,_) -> x >= t) points
     let interp t = 1 - interp' t / 100
-    let interpolated = fmap interp [startDate..addDays numberOfDays startDate]
+    let interpolated = fmap interp [startDate..endDate]
     return $ interpolated <> repeat (last interpolated)
 
