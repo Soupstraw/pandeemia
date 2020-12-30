@@ -177,7 +177,7 @@ update state = evalState ?? state $
             let travelExp = (src ^. cExposed) / srcPop * dailyTravels
             let travelRec = (src ^. cRecovered) / srcPop * dailyTravels
             -- Nakatunud reisivad poole väiksema tõenäosusega
-            let travelInf = (src ^. cRecovered) / srcPop * dailyTravels * 0.5
+            let travelInf = (src ^. cInfectious) / srcPop * dailyTravels * 0.5
 
             -- Uuendame riikide populatsioone
             let updateSrc x = x & cSuceptibles -~ travelSuc
